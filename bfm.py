@@ -153,18 +153,14 @@ def visualize_game(size=(120, 120), bird_count=60, frames=500, interval=0):
 visualize_game()
 
 """
-separation: done(?)
+separation: done
 
-alignment: 
+alignment: done
 
-coheision:
-all birds, get average "cell" of all birds, move towards it
+coheision: done but not really
 
-also do optimization (laterrrrr)
+The changed movement system works, but coheision creates a problem. If a bird moves off screen, it changes the average position drastically,\
+which breaks the "realism" of the symulation, all birds move to that one rogue bird.
 
-movement works, update above
-
-also need to find a way to normalize movement vector so x and y are between -1 and 1
-
-
+The rest is fine, I can start adding hexagonal map soon.
 """
