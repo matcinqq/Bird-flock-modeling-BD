@@ -4,7 +4,16 @@ import matplotlib.animation as animation
 from matplotlib.colors import ListedColormap
 import random as rd
 
-class Leader:
+
+class Bird:
+    def __init__(self, y, x):
+        self.x = x  # position
+        self.y = y
+        self.position = (y, x)
+        self.direction = (0, 0)  # direction of movement
+
+
+class Leader:  # unused
     def __init__(self, size):
         self.y = size[0]//2
         self.x = size[1]//2
@@ -16,199 +25,127 @@ class Leader:
         self.y = (self.y + 1) % board_size[0]
 
 
-def initialize_board(size, density=0.2):
-    board = np.random.choice([0, 1], size=size, p=[1 - density, density])
-    print(type(board))
-    leader = Leader(size)
-    board[leader.y, leader.x] = 2
-    return board, leader
+def initialize_board(size, bird_count):
+    # create board and birds
+    birds = []
+    for i in range(bird_count):
+        birds.append(Bird(np.random.randint(0, size[0]),(np.random.randint(0, size[1]))))
+    # birds placed on board, birds = list of bird objects with set position
+    board = np.zeros(shape=size, dtype=int)
+    for c in birds:
+        y, x = c.position
+        board[y, x] = 1
+    return birds, board
 
 
-def count_neighbors(board, x, y):
-    # Relative positions of neighbours
-    neighbors = [
-    (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2),
-    (-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2),
-    (0, -2), (0, -1),            (0, 1), (0, 2),
-    (1, -2), (1, -1), (1, 0), (1, 1), (1, 2),
-    (2, -2), (2, -1), (2, 0), (2, 1), (2, 2),
-    ]
+def movement_forces(bird, birds):
+    separation = (0, 0)
+    coheision = (0, 0)
+    alignment = (0, 0)
 
-    count = 0 # Count neighbours
+    neighbors = []  # list of neighbors
+    radius = 3  # radius of "vision", how far away neihbors can be
 
-    # Specific positions of neighbours around checked cell
-    for dx, dy in neighbors:
-        nx, ny = (x + dx) % board.shape[1], (y + dy) % board.shape[0]
-        if board[ny, nx] == 1:
-            count += 1
-    return count
+    # get neigbors
+    for neighbor in birds:
+        if neighbor == bird:
+            continue  # don't count the bird itself
 
-val = [[],[],[],[],[],[],[]]
+        neighbor_diff_y = neighbor.position[0] - bird.position[0]
+        neighbor_diff_x = neighbor.position[1] - bird.position[1]
 
+        if abs(neighbor_diff_y) <= radius and abs(neighbor_diff_x) <= radius:  # check if other birds in radius range
+            neighbors.append(neighbor)
 
-def decide_direction(bird_y, bird_x, leader, board):
-    # Randomly decide the direction of movement
-    leader_y, leader_x = leader.get_leader_position()
-    directions = ["N", "S", "W", "E"]
-    weights = [1, 1, 1, 1]
-    leader_strength = 5
-    repulsion = 60
-    near_repulsion = 100
-    coheision_strength = 0.5
+    # separation
+    separation_y = 0
+    separation_x = 0
+    if neighbors:
+        for neighbor in neighbors:
+            # change separation to store value, will normalize later
+            separation_y = separation[0] + (bird.position[0] - neighbor.position[0])  # move away from neigbor
+            separation_x = separation[1] + (bird.position[1] - neighbor.position[1])
+        separation = (np.sign(separation_y), np.sign(separation_x))  # normalize to (-1,1)
+    else:
+        separation = (0, 0)
 
-    if leader_y > bird_y: # leader up from bird, higher probability to move north
-        weights[0] = weights[0] + leader_strength
+    #  coheision
+    all_y = []
+    all_x = []
+    for i in birds:  # add all neigbor positions to list
+        all_y.append(i.position[0])
+        all_x.append(i.position[1])
+    avg_y = round(sum(all_y)/len(all_y))  # average neighbor position
+    avg_x = round(sum(all_x)/len(all_x))
+    diff_y = avg_y - bird.position[0]
+    diff_x = avg_x - bird.position[1]
+    coheision = (np.sign(diff_y), np.sign(diff_x))  #
+    # alignment
 
-    elif leader_y < bird_y: # leader down from bird, higher probability to move south
-        weights[1] = weights[1] + leader_strength
+    neighbors_y = []
+    neighbors_x = []
+    margin = 5  # margin where average is not calculated, avoid wraparound issues
+    if neighbors:
+        for neighbor in neighbors:
+            if neighbor == bird:
+                continue
+            neighbors_y.append(neighbor.direction[0])
+            neighbors_x.append(neighbor.direction[1])
+        if neighbors_y:
+            neighbor_avg_y = round(sum(neighbors_y)/len(neighbors_y))
+            neighbor_avg_x = round(sum(neighbors_x)/len(neighbors_x))
+            alignment = (np.sign(neighbor_avg_y), np.sign(neighbor_avg_x))
+    # sum of forces
+    sum_y = 1.2 * separation[0] + coheision[0] + alignment[0]
+    sum_x = 1.2 * separation[1] + coheision[1] + alignment[1]
+    # normalize with sign func.
+    step_y = int(np.sign(sum_y))
+    step_x = int(np.sign(sum_x))
 
-    if leader_x > bird_x: # leader right from bird, higher probability to move east
-        weights[3] = weights[3] + leader_strength
-    elif leader_x < bird_x: # leader left from bird, higher probability to move west
-        weights[2] = weights[2] + leader_strength
-
-    # cone of vision in front of bird
-    neighbors = [
-        (-3, -3), (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2), (-3, 3),
-                  (-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2),
-                  (0, -2),  (0, -1),           (0, 1),  (0, 2),
-                            (1, -1),  (1, 0),  (1, 1)
-    ]
-    neighbors_pos = []
-
-    # Specific positions of neighbours around checked cell
-    for dx, dy in neighbors:
-        nx, ny = (bird_x + dx) % board.shape[1], (bird_y + dy) % board.shape[0]
-        if board[ny, nx] == 1:
-            neighbors_pos.append((dy, dx))
-
-    if neighbors_pos: #if list not empty
-        neighbors_pos_sort = sorted(neighbors_pos, key=lambda tup: np.sqrt(tup[0]**2 + tup[1]**2)) # get nearest bird, euclidean distance
-
-        if neighbors_pos_sort[0] in [neighbors[0], neighbors[1], neighbors[7]]:
-            val[0].append(0)
-            # closest neighbour at (-3, -3), (-2,-2), (-1,-2): move S or E
-            weights[1] = weights[1] + repulsion
-            weights[3] = weights[3] + repulsion
-
-        if neighbors_pos_sort[0] in [neighbors[2], neighbors[3], neighbors[4]]:
-            val[1].append(1)
-            # closest neighbour at (-2, -1), (-2, 0) move S
-            weights[1] = weights[1] + repulsion
-
-        if neighbors_pos_sort[0] in [neighbors[5], neighbors[6]]:
-            # closest neighbour at (-2, 2), (-3, 3), (-1, 2): move S or W
-            weights[1] = weights[1] + repulsion
-            weights[2] = weights[2] + repulsion
-            val[2].append(2)
-
-        if neighbors_pos_sort[0] in [neighbors[8], neighbors[12], neighbors[13]]:
-            # closest neighbour at (-1, -1), (0,-1): move E
-            weights[3] = weights[3] + near_repulsion
-            val[3].append(3)
-
-        if neighbors_pos_sort[0] in [neighbors[10], neighbors[11], neighbors[14], neighbors[15]]:
-            # closest neighbour at (-1, 1), (0,1): move W
-            weights[2] = weights[2] + near_repulsion
-            val[4].append(4)
-
-        if neighbors_pos_sort[0] == (-1, 0):
-            #when bird above move down
-            weights[0] = weights[0] + near_repulsion # 1->0
-            val[5].append(5)
-
-        if neighbors_pos_sort[0] in [neighbors[16], neighbors[17], neighbors[18]]:
-            #when bird below move up
-            weights[1] = weights[1] + near_repulsion # 0 -> 1
-            val[6].append(6)
-        print(
-            f"0:{len(val[0])}, 1:{len(val[1])}, 2:{len(val[2])}, 3:{len(val[3])}, 4:{len(val[4])}, 5:{len(val[5])}, 6:{len(val[6])}")
-    y_active, x_active = np.where(board == 1) # find birds
-    avg_y = int(round(sum(y_active)/len(y_active), 0))
-    avg_x = int(round(sum(x_active)/len(x_active), 0))
-
-    if bird_y - avg_y > 0:
-        # bird above avg, move S
-        weights[1] = weights[1] + coheision_strength
-
-    if bird_y - avg_y < 0:
-        # bird below avg, move N
-        weights[0] = weights[0] + coheision_strength
-
-    if bird_x - avg_x > 0:
-        # bird right of avg, move W
-        weights[2] = weights[2] + coheision_strength
-
-    if bird_x - avg_x < 0:
-        #bird left of avg, move E
-        weights[3] = weights[3] + coheision_strength
-
-    weights = np.array(weights)/sum(weights) # normalize to sum = 1, needed for probability calculation
-    return np.random.choice(directions, size=1, p=weights)
+    if step_x != 0 and step_y != 0:
+        bird.direction = step_y, step_x
+    else:
+        bird.direction = (np.random.randint(-1,1), np.random.randint(-1,1))
+    return bird.direction
 
 
-def calc_dist(bird_y, bird_x, food_list):
-    dist = 1000 # placeholder, some very large number idk how to do it well
-    for i in range(len(food_list)):
-        dist_new = np.linalg.norm(np.array([bird_y,bird_x])-food_list[i])
-        if dist_new < dist:
-            dist = dist_new
-    # not used, kept for future
-    return dist
-
-
-def update_board(board, leader):
+def update_board(board, birds):
     new_board = np.copy(board)
-    size_x, size_y = board.shape
+    size_y, size_x = board.shape
+    for bird in birds:  # updating movement of birds
+        y, x = bird.position
+        movement_forces(bird, birds)
+        y_move, x_move = bird.direction
 
-    leader.move((size_y, size_x))
-    new_board[:, :] = np.where(new_board == 2, 0, new_board)  # Clear old director position
+        # calc new positions, looping board, update object's position value
+        new_y = (y+y_move) % size_y
+        new_x = (x+x_move) % size_x
+        bird.position = new_y, new_x
 
-    if leader.y < size_y and leader.x < size_x:
-        new_board[leader.y, leader.x] = 2  # Place director in new position
+        # clear old positon, place in new position
+        new_board[y, x] = 0
+        new_board[new_y, new_x] = 1
 
-    for y in range(size_y):  # Start with y as the vertical axis (rows)
-        for x in range(size_x):  # x as the horizontal axis (columns)
-            count = count_neighbors(board, x, y)
-            if board[y, x] == 1:  # Access the board with flipped coordinates
-                direction = decide_direction(y, x, leader, board)
-                if direction == "N":
-                    new_y = (y+1) % size_y
-                    if new_board[new_y, x] != 1:
-                        new_board[y, x] = 0
-                        new_board[new_y, x] = 1
-                if direction == "S":
-                    new_y = (y - 1) % size_y
-                    if new_board[new_y, x] != 1:
-                        new_board[y, x] = 0
-                        new_board[new_y, x] = 1
-                elif direction == "W":
-                    new_x = (x - 1) % size_x
-                    if new_board[y, new_x] != 1:
-                        new_board[y, x] = 0
-                        new_board[y, new_x] = 1
-                elif direction == "E":
-                    new_x = (x + 1) % size_x
-                    if new_board[y, new_x] != 1:
-                        new_board[y, x] = 0
-                        new_board[y, new_x] = 1
-        # Preventing colisions in code, maybe add chance to reproduce if they collide idk
-
-    return new_board
+    return new_board, birds
 
 
-def update(frame, img, board, leader):
+def update(frame, img, board, birds):
     # Update the whole board, [:] means in place,
-    board[:] = update_board(board, leader)
+    board[:], birds = update_board(board, birds)
     img.set_array(board)
+    print(len(birds))
     return img
 
 
-def visualize_game(size=(80, 80), density=0.02, frames=100, interval=30):
-    board, leader = initialize_board(size, density)
-    fig, ax = plt.subplots() # ini plot for board
-    img = ax.imshow(board, cmap=ListedColormap(['black', 'red', 'white', 'purple']), origin = 'lower', vmin = 0, vmax = 2)  # img for animation, vmax vmin required for 3 colors.
-    ani = animation.FuncAnimation(fig, update, fargs=(img, board, leader), frames=frames, interval=interval)  # update - func each frame, fargs - args for update
+def visualize_game(size=(120, 120), bird_count=60, frames=500, interval=0):
+    birds, board = initialize_board(size, bird_count)
+    fig, ax = plt.subplots()  # ini plot for board
+
+    # img for animation, vmax vmin required for 3 colors.
+    img = ax.imshow(board, cmap=ListedColormap(['black', 'white']), origin='lower', vmin = 0, vmax = 2)
+
+    # update - func each frame, fargs - args for update
+    ani = animation.FuncAnimation(fig, update, fargs=(img, board, birds), frames=frames, interval=interval)
     plt.show()
 
 
@@ -223,6 +160,11 @@ alignment:
 coheision:
 all birds, get average "cell" of all birds, move towards it
 
-also do optimization
-aaaaaaaa
+also do optimization (laterrrrr)
+
+movement works, update above
+
+also need to find a way to normalize movement vector so x and y are between -1 and 1
+
+
 """
