@@ -38,21 +38,6 @@ def initialize_board(size, bird_count):
     return birds, board
 
 
-def torus_average(birds, size):
-    birds_y = []
-    birds_x = []
-    for i in birds:
-        birds_y.append(i.position[0])
-        birds_x.append(i.position[1])
-
-    height, width = size
-    birds_y_angle = [2 * np.pi * y / height for y in birds_y]
-    birds_x_angle = [2 * np.pi * x / width for x in birds_x]
-
-    
-
-
-
 def movement_forces(bird, birds):
     separation = (0, 0)
     coheision = (0, 0)
