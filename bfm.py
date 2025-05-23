@@ -44,7 +44,7 @@ def movement_forces(bird, birds):
     alignment = (0, 0)
 
     neighbors = []  # list of neighbors
-    radius = 3  # radius of "vision", how far away neihbors can be
+    radius = 2  # radius of "vision", how far away neihbors can be
 
     # get neigbors
     for neighbor in birds:
@@ -99,8 +99,8 @@ def movement_forces(bird, birds):
     sum_y = 1.2 * separation[0] + coheision[0] + alignment[0]
     sum_x = 1.2 * separation[1] + coheision[1] + alignment[1]
     # normalize with sign func.
-    step_y = int(np.sign(sum_y))
-    step_x = int(np.sign(sum_x))
+    step_y = int(sum_y)
+    step_x = int(sum_x)
 
     if step_x != 0 and step_y != 0:
         bird.direction = step_y, step_x
