@@ -11,7 +11,7 @@ pygame.init()
 
 # Pygame general setup
 width, height = 1200, 800
-hex_size = 10
+hex_size = 15
 background_color = (0, 0, 0) # white
 hex_color = background_color # not visible, same as background
 grid_color = (10, 10, 10)
@@ -37,6 +37,31 @@ class Bird:
             self.parity = 0
         elif self.col&1 != 0: # odd
             self.parity = 1
+
+
+def find_best_hex(dx, dy, possible_hexes):  # find best hex where bird can move
+    possible_hexes_cube = []
+    vx, vy, vz = offset_to_cube(dx, dy)
+    for i in possible_hexes:
+        x, y, z = offset_to_cube(i[0], i[1])
+        possible_hexes_cube.append([x, y, z])
+    best_dir = (0, 0, 0)
+    best_score = float('-inf')
+
+    for hex in possible_hexes_cube:
+        score = vx * hex[0] + vy * hex[1] + vz * hex[2] # dot product
+        if score > best_score:
+            best_score = score
+            best_hex = hex
+    return best_hex
+
+
+def decide_move_dir(bird):  # find possible hexes where bird can move
+    if bird.parity == 0:
+        possible_hexes = [[+1,  0], [ 0, -1], [-1, -1], [-1,  0], [-1, +1], [ 0, +1]]
+    elif bird.parity == 1:
+        possible_hexes = [[+1,  0], [+1, -1], [ 0, -1], [-1,  0], [ 0, +1], [+1, +1]]
+    return possible_hexes
 
 
 def oddr_offset_to_pixel(col, row):
@@ -114,7 +139,7 @@ def initialize_board(cols, rows, bird_count):
     return birds
 
 
-def get_neighbors(bird, birds, radius = 6):  # w/ sliding window i think?; Radius - "vision" radius
+def get_neighbors(bird, birds, radius = 10):  # w/ sliding window i think?; Radius - "vision" radius, vey
     bird_col, bird_row = bird.position
     x, y, z = offset_to_cube(bird_col, bird_row)
 
@@ -151,11 +176,11 @@ def movement_forces(bird, birds):
         for neighbor in neighbors:
             neighbor_x, neighbor_y = neighbor.position
             if abs(bird_x - neighbor_x) >= 3 or abs(bird_y - neighbor_y) >= 3:  # primitive - just with a lot of if statements
-                separation = (np.sign(separation[0] + (bird_x - neighbor_x)), np.sign(separation[1] + (bird_y - neighbor_y)))
+                separation = ((separation[0] + (bird_x - neighbor_x)), (separation[1] + (bird_y - neighbor_y)))
             elif abs(bird_x - neighbor_x) == 2 or abs(bird_y - neighbor_y) == 2:
-                separation = 2*(np.sign(separation[0] + (bird_x - neighbor_x)), np.sign(separation[1] + (bird_y - neighbor_y)))
+                separation = 2*((separation[0] + (bird_x - neighbor_x)), (separation[1] + (bird_y - neighbor_y)))
             elif abs(bird_x - neighbor_x) <= 1 or abs(bird_y - neighbor_y) <= 1:
-                separation = 3*(np.sign(separation[0] + (bird_x - neighbor_x)), np.sign(separation[1] + (bird_y - neighbor_y)))
+                separation = 3*((separation[0] + (bird_x - neighbor_x)), (separation[1] + (bird_y - neighbor_y)))
 
     # Cohesion (neighbors, weighed [wip])
     neighbor_pos_x = []
@@ -168,7 +193,7 @@ def movement_forces(bird, birds):
         avg_y = sum(neighbor_pos_y)/len(neighbor_pos_y)  # average neighbor position
         diff_x = avg_x - bird.position[0]
         diff_y = avg_y - bird.position[1]
-        cohesion = (int(np.sign(diff_x)), int(np.sign(diff_y)))
+        cohesion = (int(diff_x), int(diff_y))
     else:
         cohesion = (np.random.randint(-1, 2), np.random.randint(-1, 2))
 
@@ -177,29 +202,28 @@ def movement_forces(bird, birds):
     neighbors_x = []
     if neighbors:
         for neighbor in neighbors:
-            neighbors_x.append(np.sign(neighbor.direction[0]))
-            neighbors_y.append(np.sign(neighbor.direction[1]))
+            neighbors_x.append((neighbor.direction[0]))
+            neighbors_y.append((neighbor.direction[1]))
         if neighbors_x:  # check average direction of neighb. and make it birds direction
             avg_dx = sum(neighbors_x) / len(neighbors_x)
             avg_dy = sum(neighbors_y) / len(neighbors_y)
-            alignment = (int(np.sign(avg_dx)), int(np.sign(avg_dy)))
+            alignment = (int(avg_dx), int(avg_dy))
 
-    sum_x = separation[0] + 3*cohesion[0] + 3*alignment[0]  # sep > 4, coh > 3 works decently
-    sum_y = separation[1] + 3*cohesion[1] + 3*alignment[1]
+    sum_x = 2*separation[0] + 5*cohesion[0] + 7*alignment[0]  # sep > 4, coh > 3 works decently
+    sum_y = 2*separation[1] + 5*cohesion[1] + 7*alignment[1]
 
     # randomness in movement
     random_chance = np.random.randint(0,50)
     if random_chance == 1:
         sum_x = np.random.randint(-2, 2)
         sum_y = np.random.randint(-2, 2)
-    print(sum_x, sum_y)
 
-    # normalize with sign func.
+    # normalize wi func.
 
-    step_y = int(np.sign(sum_y))
-    step_x = int(np.sign(sum_x))
-
-    step = (step_x, step_y)
+    possible_hexes = decide_move_dir(bird)
+    best_hex = find_best_hex(sum_x, sum_y, possible_hexes)
+    move_x, move_y = cube_to_offset(*best_hex)
+    step = (move_x, move_y)
     bird.direction = step
     return step
 
@@ -264,7 +288,8 @@ while running:
                 running = False
 
     pygame.display.flip()
-    clock.tick(60)  # lower speed to observe motion
+    clock.tick(1000)  # lower speed to observe motion
+    print(clock.get_fps())
 
 pygame.quit()
 
