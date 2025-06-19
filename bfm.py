@@ -12,7 +12,7 @@ pygame.init()
 
 # Pygame general setup
 width, height = 1200, 800
-hex_size = 5
+hex_size = 8
 background_color = (0, 0, 0) # white
 hex_color = background_color # not visible, same as background
 grid_color = (50, 10, 10)
@@ -34,16 +34,12 @@ class Bird:
         self.col = col
         self.row = row
         self.position = (col, row)
-
-    def parity(self):
-        if self.col&1 == 0: # even
-            self.parity = 0
-        elif self.col&1 != 0: # odd
-            self.parity = 1
+        self.parity = 0 if col % 2 == 0 else 1
 
 
 def find_best_hex(dx, dy, possible_hexes):  # find best hex where bird can move
     possible_hexes_cube = []
+    best_hex = 0
     vx, vy, vz = offset_to_cube(dx, dy)
     for i in possible_hexes:
         x, y, z = offset_to_cube(i[0], i[1])
@@ -131,9 +127,9 @@ def initialize_board(cols, rows, bird_count):
 
     center_col = cols // 2  # cols, rows around center of board
     center_row = rows // 2
-    spawn_radius = 4  # how far from center the birds can be placed, !find good value later!
+    spawn_radius = 8  # how far from center the birds can be placed, !find good value later!
 
-    # place birds around the center of the board, !should change to consider amount of birds!
+    # place birds around the center of the board, !should change to consider amount of birds, if too many - clamped in the middle
     for i in range(bird_count):
         col = np.clip(np.random.randint(center_col - spawn_radius, center_col + spawn_radius + 1), 0, cols - 1) # clip - if
         row = np.clip(np.random.randint(center_row - spawn_radius, center_row + spawn_radius + 1), 0, rows - 1)
@@ -178,12 +174,13 @@ def movement_forces(bird, birds, radius):
     if neighbors:
         for neighbor in neighbors:
             neighbor_x, neighbor_y = neighbor.position
-            if abs(bird_x - neighbor_x) >= 3 or abs(bird_y - neighbor_y) >= 3:  # primitive - just with a lot of if statements
-                separation = ((separation[0] + (bird_x - neighbor_x)), (separation[1] + (bird_y - neighbor_y)))
-            elif abs(bird_x - neighbor_x) == 2 or abs(bird_y - neighbor_y) == 2:
-                separation = 2*((separation[0] + (bird_x - neighbor_x)), (separation[1] + (bird_y - neighbor_y)))
-            elif abs(bird_x - neighbor_x) <= 1 or abs(bird_y - neighbor_y) <= 1:
-                separation = 3*((separation[0] + (bird_x - neighbor_x)), (separation[1] + (bird_y - neighbor_y)))
+            dist_x = bird_x - neighbor_x
+            dist_y = bird_y - neighbor_y
+            distance = math.hypot(dist_x, dist_y)
+
+            if distance != 0:
+                weight = 1/distance
+                separation = (separation[0]+dist_x*weight, separation[1]+dist_y*weight)
 
     # Cohesion (neighbors, weighed [wip])
     neighbor_pos_x = []
@@ -212,16 +209,14 @@ def movement_forces(bird, birds, radius):
             avg_dy = sum(neighbors_y) / len(neighbors_y)
             alignment = (int(avg_dx), int(avg_dy))
 
-    sum_x = sep_force*separation[0] + coh_force*cohesion[0] + alig_force*alignment[0]  # sep > 4, coh > 3 works decently
-    sum_y = sep_force*separation[1] + coh_force*cohesion[1] + alig_force*alignment[1]
+    sum_x = int(round(sep_force*separation[0] + coh_force*cohesion[0] + alig_force*alignment[0]))  # sep > 4, coh > 3 works decently
+    sum_y = int(round(sep_force*separation[1] + coh_force*cohesion[1] + alig_force*alignment[1]))
 
     # randomness in movement
     random_chance = np.random.randint(0,10)
     if random_chance == 1:
         sum_x = np.random.randint(-2, 2)
         sum_y = np.random.randint(-2, 2)
-
-    # normalize wi func.
 
     possible_hexes = decide_move_dir(bird)
     best_hex = find_best_hex(sum_x, sum_y, possible_hexes)
@@ -248,26 +243,25 @@ def update_board(birds):
             new_positions.add(new_position)
 
         else:
-            new_y = y + np.random.randint(-1,1) % rows
-            new_x= x + np.random.randint(-1,1) % cols
+            new_y = y + np.random.randint(-2,2) % rows
+            new_x= x + np.random.randint(-2,2) % cols
             new_position = (new_x, new_y)
             bird.update_position(new_x, new_y)
             new_positions.add(new_position)
-
 
     return birds
 
 
 # Create birds and board
 draw_hex_map(hex_surf, hex_size) # just to draw birds, need globabl variables
-birds = initialize_board(cols, rows, bird_count=20)
+birds = initialize_board(cols, rows, bird_count=50)
 board = np.zeros((rows, cols))
 
 # setup forces
 sep_force = 2
 coh_force = 5
-alig_force = 7
-radius = 10
+alig_force = 3
+radius = 5
 
 # create input boxes and text
 textinput = pygame_textinput.TextInputVisualizer()
@@ -276,12 +270,10 @@ text_surf = pygame.surface.Surface((width*(1/5), height))
 text_1 = pygame.font.SysFont("arialunicode", 30)
 text_2 = pygame.font.SysFont("arialunicode", 20)
 
-text_surf.fill((89, 97, 43))
-sim_surf.set_colorkey((255, 0, 255))
 running = True
 needs_redraw = True
 while running:
-    text_surf.fill((89, 97, 43))
+    text_surf.fill((143, 34, 26))
     # create text boxes
     text_separation = text_1.render(f"Separation = {sep_force}", False, (255, 255, 255))
     text_cohesion = text_1.render(f"Cohesion = {coh_force}", True, (255, 255, 255))
@@ -334,19 +326,10 @@ while running:
     sim_surf.fill((0,0,0))
     sim_surf.blit(hex_surf,(0,0))
 
-    # Update bird positions
+    # Update bird positions, change row x col into pixels, move bird by hex pixel size.
     birds = update_board(birds)
     for bird in birds:
         px, py = oddr_offset_to_pixel(bird.col, bird.row)
-
-        # testing detection neighbors - if bird is red, it's a neighbor of another
-        neighbors = get_neighbors(bird, birds)
-        for neighbor in neighbors:
-            pxz, pyz = oddr_offset_to_pixel(neighbor.col, neighbor.row)
-            pxz += hex_size
-            pyz += hex_size
-            pygame.draw.circle(sim_surf, (212, 8, 25), (pxz, pyz), (0.60*hex_size))
-
         px += hex_size
         py += hex_size
         pygame.draw.circle(sim_surf, (134, 116, 181), (px, py), (0.60*hex_size))  # can change size but looks good
@@ -371,63 +354,62 @@ while running:
         # Adding separation
         rect_add_sep = text_add_sep.get_rect(topleft = (width*(4/5),(0*height)+50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_add_sep.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if sep_force >= 0:
                 sep_force += 1
 
         # Removing separation
         rect_rm_sep = text_rm_sep.get_rect(topleft=((width*(4/5))+100, (0*height)+50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_rm_sep.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if sep_force >= 0:
                 sep_force -= 1
 
         # Adding cohesion
         rect_add_coh = text_add_coh.get_rect(topleft=((width * (4 / 5)), ((1/5) * height) + 50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_add_coh.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if coh_force >= 0:
                 coh_force += 1
 
         # Removing cohesion
         rect_rm_coh = text_rm_coh.get_rect(topleft=((width*(4/5))+100, ((1/5)*height)+50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_rm_coh.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if coh_force >= 0:
                 coh_force -= 1
 
         # Adding alignment
         rect_add_align = text_add_align.get_rect(topleft=((width * (4 / 5)), ((2/5) * height) + 50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_add_align.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if alig_force >= 0:
                 alig_force += 1
 
         # Removing cohesion
         rect_rm_alig = text_rm_align.get_rect(topleft=((width*(4/5))+100, ((2/5)*height)+50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_rm_alig.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if alig_force >= 0:
                 alig_force -= 1
 
         # Adding radius
         rect_add_radius = text_add_radius.get_rect(topleft=((width * (4 / 5)), ((3/5) * height) + 50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_add_radius.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if radius >= 0:
                 radius += 1
 
         # Removing radius
         rect_rm_radius = text_rm_radius.get_rect(topleft=((width*(4/5))+100, ((3/5)*height)+50))
         if event.type == pygame.MOUSEBUTTONDOWN and rect_rm_radius.collidepoint(pygame.mouse.get_pos()):
-            text_surf.fill((89, 97, 43))
+            text_surf.fill((143, 34, 26))
             if radius >= 0:
                 radius -= 1
 
     screen.blit(sim_surf, (0, 0))
     pygame.display.flip()
     clock.tick(10)  # lower speed to observe motion
-    print(clock.get_fps())
 
 pygame.quit()
 
@@ -445,4 +427,6 @@ optimization
 add barriers or nests or smn
 
 oddzielny surface dla hexmap tylko na poczatku albo po resize, co frame tylko blit
+
+main efficiency problem comes from large radius
 """
